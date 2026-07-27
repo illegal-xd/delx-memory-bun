@@ -85,6 +85,7 @@
   "main": "dist/index.js",
   "overrides": {
     "hono": "4.12.27",
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "@hono/node-server": "2.0.12"
   }
 }
