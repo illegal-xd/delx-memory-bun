@@ -1,3 +1,9 @@
+## 0.2.5 - 2026-07-30
+
+### Added / Fixed
+
+- MCP prompts: setup_status, search_then_act, triage_errors.
+
 ## 0.2.4 - 2026-07-30
 
 ### Added

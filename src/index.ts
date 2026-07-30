@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SERVER_NAME, SERVER_VERSION } from "./constants.js";
 import { runCliCommand } from "./cli/commands.js";
 import { registerMemoryResources } from "./resources/memory-resources.js";
+import { registerMemoryPrompts } from "./prompts/memory-prompts.js";
 import { registerMemoryTools } from "./tools/memory-tools.js";
 
 function createServer(): McpServer {
@@ -15,6 +16,7 @@ function createServer(): McpServer {
     version: SERVER_VERSION,
   });
   registerMemoryTools(server);
+  registerMemoryPrompts(server);
   registerMemoryResources(server);
   return server;
 }
