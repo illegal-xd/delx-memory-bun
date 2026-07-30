@@ -28,12 +28,15 @@ import {
   MemorySetInputSchema,
   MemoryStatsInputSchema,
 } from "../schemas/common.js";
+import { buildAgentManifest, parseAgentClientName } from "../services/agent-manifest.js";
+import { buildCapabilities } from "../services/capabilities.js";
+import { buildDataInventory } from "../services/inventory.js";
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
-function rowToPayload(row: MemoryRow) {
+function rowToPayload(row: MemoryRow, privacyMode: "summary" | "structured" | "raw" = "structured") {
   let parsedValue: unknown = row.value;
   try {
     parsedValue = JSON.parse(row.value);
@@ -47,6 +50,24 @@ function rowToPayload(row: MemoryRow) {
     } catch {
       parsedMetadata = null;
     }
+  }
+  if (privacyMode === "summary") {
+    const valueBytes =
+      typeof parsedValue === "string"
+        ? Buffer.byteLength(parsedValue, "utf8")
+        : Buffer.byteLength(JSON.stringify(parsedValue ?? null), "utf8");
+    return {
+      key: row.key,
+      value_summary: {
+        type: Array.isArray(parsedValue) ? "array" : typeof parsedValue,
+        bytes: valueBytes,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      ttl_expires_at: row.ttl_expires_at,
+      tags: decodeTags(row.tags),
+      has_metadata: Boolean(parsedMetadata),
+    };
   }
   return {
     key: row.key,
@@ -167,6 +188,101 @@ function likeSearch(
 // ---------------------------------------------------------------------------
 
 export function registerMemoryTools(server: McpServer): void {
+  server.registerTool(
+    "memory_agent_manifest",
+    {
+      title: "Memory agent manifest",
+      description:
+        "Machine-readable install and operating instructions for AI agents. Call first when onboarding. Supports privacy_mode documentation for read tools.",
+      inputSchema: z
+        .object({
+          client: z
+            .enum(["generic", "claude", "cursor", "windsurf", "hermes", "openclaw", "codex"])
+            .default("generic"),
+        })
+        .strict().shape,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (rawInput) => {
+      try {
+        const client = parseAgentClientName(
+          (rawInput as { client?: string })?.client ?? "generic",
+        );
+        return makeResponse(buildAgentManifest(client));
+      } catch (err) {
+        return makeError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "memory_connection_status",
+    {
+      title: "Memory connection status",
+      description:
+        "Local SQLite path readiness and size without reading entry values. Safe first call every session.",
+      inputSchema: MemoryStatsInputSchema.shape,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      try {
+        sweepExpired();
+        const db = getDb();
+        const countRow = db
+          .prepare<unknown[], { total: number }>("SELECT COUNT(*) AS total FROM memory")
+          .get();
+        return makeResponse({
+          ok: true,
+          ready: true,
+          db_path: resolveDbPath(),
+          total_keys: countRow?.total ?? 0,
+          total_size_bytes: getDbSizeBytes(),
+          next_steps:
+            (countRow?.total ?? 0) === 0
+              ? ["Store is empty — use memory_set only with explicit_user_intent: true when the user asks."]
+              : ["Use memory_list or memory_search to discover keys; memory_get for values."],
+        });
+      } catch (err) {
+        return makeError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "memory_data_inventory",
+    {
+      title: "Memory data inventory",
+      description:
+        "Static inventory of memory domains, privacy modes and recommended first calls. No live value reads.",
+      inputSchema: MemoryStatsInputSchema.shape,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      try {
+        return makeResponse(buildDataInventory());
+      } catch (err) {
+        return makeError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "memory_capabilities",
+    {
+      title: "Memory capabilities",
+      description: "Self-description of this MCP including privacy modes and mutation gating.",
+      inputSchema: MemoryStatsInputSchema.shape,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      try {
+        return makeResponse(buildCapabilities());
+      } catch (err) {
+        return makeError((err as Error).message);
+      }
+    },
+  );
+
   // -------------------------------------------------------------------------
   // memory_get
   // -------------------------------------------------------------------------
@@ -175,22 +291,23 @@ export function registerMemoryTools(server: McpServer): void {
     {
       title: "Get one memory entry by key",
       description:
-        "Exact key lookup. Returns the stored value plus timestamps, ttl, tags, metadata. Returns null if missing or expired.",
+        "Exact key lookup. Returns the stored value plus timestamps, ttl, tags, metadata. Returns null if missing or expired. Optional privacy_mode=summary omits full values.",
       inputSchema: MemoryGetInputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (rawInput) => {
       try {
         const input = MemoryGetInputSchema.parse(rawInput);
+        const privacy = input.privacy_mode ?? "structured";
         sweepExpired();
         const db = getDb();
         const row = db
           .prepare<unknown[], MemoryRow>("SELECT * FROM memory WHERE key = ?")
           .get(input.key);
         if (!row) {
-          return makeResponse({ key: input.key, found: false, value: null });
+          return makeResponse({ key: input.key, found: false, value: null, privacy_mode: privacy });
         }
-        return makeResponse({ found: true, ...rowToPayload(row) });
+        return makeResponse({ found: true, privacy_mode: privacy, ...rowToPayload(row, privacy) });
       } catch (err) {
         return makeError((err as Error).message);
       }
@@ -205,13 +322,14 @@ export function registerMemoryTools(server: McpServer): void {
     {
       title: "List memory keys (not values)",
       description:
-        "List keys with optional prefix or tag filter. Returns keys + timestamps + tags only — call memory_get for values. Use this first on a new session to discover what is stored.",
+        "List keys with optional prefix or tag filter. Returns keys + timestamps + tags only — call memory_get for values. Use this first on a new session to discover what is stored. Optional privacy_mode for agent-surface parity (list is already key-only).",
       inputSchema: MemoryListInputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (rawInput) => {
       try {
         const input = MemoryListInputSchema.parse(rawInput);
+        const privacy = input.privacy_mode ?? "structured";
         sweepExpired();
         const db = getDb();
         const clauses: string[] = [];
@@ -230,6 +348,7 @@ export function registerMemoryTools(server: McpServer): void {
         const rows = db.prepare<unknown[], Pick<MemoryRow, "key" | "created_at" | "updated_at" | "ttl_expires_at" | "tags">>(sql).all(...params);
         return makeResponse({
           count: rows.length,
+          privacy_mode: privacy,
           filters: {
             prefix: input.prefix ?? null,
             tag: input.tag ?? null,
@@ -257,13 +376,14 @@ export function registerMemoryTools(server: McpServer): void {
     {
       title: "Keyword search across keys and values",
       description:
-        "Full-text search across keys, values AND tags. Uses an FTS5 index with bm25 relevance ranking (key-weighted), word-stemming, diacritic folding and prefix matching — so multi-word, partial and accent-insensitive queries all hit, ranked by relevance. Falls back to a LIKE substring scan if the SQLite build lacks FTS5. Returns top N matches with a snippet. Case-insensitive.",
+        "Full-text search across keys, values AND tags. Uses an FTS5 index with bm25 relevance ranking (key-weighted), word-stemming, diacritic folding and prefix matching — so multi-word, partial and accent-insensitive queries all hit, ranked by relevance. Falls back to a LIKE substring scan if the SQLite build lacks FTS5. Returns top N matches with a snippet. Case-insensitive. privacy_mode=summary omits snippets.",
       inputSchema: MemorySearchInputSchema.shape,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (rawInput) => {
       try {
         const input = MemorySearchInputSchema.parse(rawInput);
+        const privacy = input.privacy_mode ?? "structured";
         sweepExpired();
         const db = getDb();
 
@@ -283,11 +403,23 @@ export function registerMemoryTools(server: McpServer): void {
           engine = "like";
         }
 
+        const shaped =
+          privacy === "summary"
+            ? results.map(({ key, score, updated_at, tags }) => ({
+                key,
+                score,
+                updated_at,
+                tags,
+                snippet_omitted: true,
+              }))
+            : results;
+
         return makeResponse({
           query: input.query,
           engine,
-          count: results.length,
-          results,
+          privacy_mode: privacy,
+          count: shaped.length,
+          results: shaped,
         });
       } catch (err) {
         return makeError((err as Error).message);
@@ -512,7 +644,7 @@ export function registerMemoryTools(server: McpServer): void {
           )
           .all(...params);
 
-        const entries = rows.map(rowToPayload);
+        const entries = rows.map((row) => rowToPayload(row, "structured"));
         let body: string;
         let contentType: string;
         if (input.format === "json") {

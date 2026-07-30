@@ -1,3 +1,10 @@
+## 0.2.4 - 2026-07-30
+
+### Added
+
+- Agent-readiness surface: `memory_agent_manifest`, `memory_connection_status`, `memory_data_inventory`, `memory_capabilities` + MCP resources.
+- Optional `privacy_mode` on read tools (`summary` omits full values / search snippets).
+
 # Changelog
 
 All notable changes to `delx-memory` follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adhere to [SemVer](https://semver.org/spec/v2.0.0.html).

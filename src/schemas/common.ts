@@ -39,8 +39,17 @@ const MetadataSchema = z
 
 // ----- READS -----
 
+/** Agent-facing privacy modes (local SQLite has no remote vendor payload). */
+export const PrivacyModeSchema = z
+  .enum(["summary", "structured", "raw"])
+  .default("structured")
+  .describe(
+    "summary = keys/meta without full values; structured/raw = full entries (local store parity).",
+  );
+
 export const MemoryGetInputSchema = z.object({
   key: KeySchema,
+  privacy_mode: PrivacyModeSchema.optional(),
 });
 
 export const MemoryListInputSchema = z.object({
@@ -57,6 +66,7 @@ export const MemoryListInputSchema = z.object({
     .max(MAX_LIST_LIMIT)
     .default(DEFAULT_LIST_LIMIT)
     .describe("Max keys to return."),
+  privacy_mode: PrivacyModeSchema.optional(),
 });
 
 export const MemorySearchInputSchema = z.object({
@@ -68,9 +78,14 @@ export const MemorySearchInputSchema = z.object({
     .max(MAX_SEARCH_LIMIT)
     .default(DEFAULT_SEARCH_LIMIT)
     .describe("Max matches to return."),
+  privacy_mode: PrivacyModeSchema.optional(),
 });
 
-export const MemoryStatsInputSchema = z.object({}).describe("No arguments.");
+export const MemoryStatsInputSchema = z
+  .object({
+    privacy_mode: PrivacyModeSchema.optional(),
+  })
+  .describe("No required arguments.");
 
 // ----- WRITES -----
 

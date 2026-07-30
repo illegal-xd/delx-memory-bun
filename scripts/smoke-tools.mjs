@@ -6,6 +6,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const expectedTools = [
+  "memory_agent_manifest",
+  "memory_connection_status",
+  "memory_data_inventory",
+  "memory_capabilities",
   "memory_get",
   "memory_list",
   "memory_search",
@@ -35,8 +39,21 @@ try {
   const names = tools.tools.map((t) => t.name).sort();
   assert.deepEqual(names, expectedTools, `tools mismatch: ${names.join(",")}`);
 
+  // discovery surface
+  let r = await client.callTool({ name: "memory_agent_manifest", arguments: {} });
+  assert.ok(Array.isArray(r.structuredContent?.recommended_first_calls));
+  r = await client.callTool({ name: "memory_connection_status", arguments: {} });
+  assert.equal(r.structuredContent?.ok, true);
+  assert.equal(r.structuredContent?.db_path, dbPath);
+  r = await client.callTool({ name: "memory_data_inventory", arguments: {} });
+  assert.equal(r.structuredContent?.kind, "data_inventory");
+  r = await client.callTool({ name: "memory_capabilities", arguments: {} });
+  assert.equal(r.structuredContent?.unofficial, true);
+  const resources = await client.listResources();
+  assert.ok(resources.resources?.length >= 3, "expected agent-facing resources");
+
   // stats on empty
-  let r = await client.callTool({ name: "memory_stats", arguments: {} });
+  r = await client.callTool({ name: "memory_stats", arguments: {} });
   assert.equal(r.structuredContent?.total_keys, 0, "expected empty store");
   assert.equal(r.structuredContent?.db_path, dbPath);
 
@@ -88,6 +105,15 @@ try {
   assert.equal(r.structuredContent?.found, true);
   assert.deepEqual(r.structuredContent?.value, { language: "pt-BR", verbosity: "concise" });
   assert.deepEqual(r.structuredContent?.tags, ["profile", "preferences"]);
+
+  // privacy_mode=summary omits full value
+  r = await client.callTool({
+    name: "memory_get",
+    arguments: { key: "user_preferences", privacy_mode: "summary" },
+  });
+  assert.equal(r.structuredContent?.found, true);
+  assert.equal(r.structuredContent?.value, undefined);
+  assert.ok(r.structuredContent?.value_summary?.bytes > 0);
 
   // get missing
   r = await client.callTool({ name: "memory_get", arguments: { key: "missing_xyz" } });

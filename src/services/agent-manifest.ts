@@ -1,76 +1,76 @@
-import { SERVER_NAME, SERVER_VERSION, PINNED_NPM_PACKAGE } from "../constants.js";
+import { NPM_PACKAGE_NAME, PINNED_NPM_PACKAGE, SERVER_VERSION } from "../constants.js";
 
-/**
- * Tools agents can call freely on a fresh session — they only read.
- */
-export const STANDARD_TOOLS = [
-  "memory_stats",
-  "memory_list",
-  "memory_get",
-  "memory_search",
-];
+export const AGENT_CLIENTS = ["generic", "claude", "cursor", "windsurf", "hermes", "openclaw", "codex"] as const;
+export type AgentClientName = (typeof AGENT_CLIENTS)[number];
 
-/**
- * Tools that mutate state. They require explicit_user_intent: true and
- * should NEVER be called without a fresh user request asking for the change.
- */
-export const MUTATION_TOOLS = [
-  "memory_set",
-  "memory_forget",
-  "memory_forget_by_tag",
-  "memory_export",
-];
-
-/**
- * Suggested first calls a fresh agent should make to orient itself.
- * memory_stats is intentionally first — gives the agent total size and
- * oldest entry so it can decide whether the store is "warm" or empty
- * without asking the user.
- */
-export const RECOMMENDED_FIRST_CALLS = [
-  "memory_stats",
-  "memory_list",
-];
-
-export interface AgentManifest {
-  server: string;
-  version: string;
-  npm_package: string;
-  tools: {
-    standard: string[];
-    mutation: string[];
-  };
-  recommended_first_calls: string[];
-  privacy: {
-    storage: string;
-    rejects_credential_shapes: boolean;
-    telemetry: boolean;
-    file_permissions: string;
-  };
-  notes: string[];
+export function parseAgentClientName(value: string): AgentClientName {
+  return AGENT_CLIENTS.includes(value as AgentClientName) ? (value as AgentClientName) : "generic";
 }
 
-export function buildAgentManifest(): AgentManifest {
+export function buildAgentManifest(client: AgentClientName = "generic") {
   return {
-    server: SERVER_NAME,
-    version: SERVER_VERSION,
-    npm_package: PINNED_NPM_PACKAGE,
-    tools: {
-      standard: STANDARD_TOOLS,
-      mutation: MUTATION_TOOLS,
-    },
-    recommended_first_calls: RECOMMENDED_FIRST_CALLS,
-    privacy: {
-      storage: "Local SQLite at ~/.delx-memory/db.sqlite (override with DELX_MEMORY_PATH).",
-      rejects_credential_shapes: true,
-      telemetry: false,
-      file_permissions: "0700 directory, 0600 file (best effort on non-POSIX).",
-    },
-    notes: [
-      "delx-memory is NOT a secrets manager. Credential-shaped keys and values are rejected.",
-      "Mutations require explicit_user_intent: true.",
-      "TTL is lazy: expired rows are pruned on each read.",
-      "Same DB file can be opened by Claude Desktop, Cursor, Hermes, OpenClaw, Codex — that is the point.",
+    project: NPM_PACKAGE_NAME,
+    mcp_name: "io.github.davidmosiah/delx-memory",
+    client,
+    unofficial: true,
+    recommended_first_calls: [
+      "memory_agent_manifest",
+      "memory_connection_status",
+      "memory_stats",
+      "memory_list",
+      "memory_capabilities",
     ],
+    standard_tools: [
+      "memory_agent_manifest",
+      "memory_connection_status",
+      "memory_data_inventory",
+      "memory_capabilities",
+      "memory_get",
+      "memory_list",
+      "memory_search",
+      "memory_stats",
+      "memory_set",
+      "memory_forget",
+      "memory_forget_by_tag",
+      "memory_export",
+    ],
+    package: {
+      name: NPM_PACKAGE_NAME,
+      version: SERVER_VERSION,
+      install_command: `npx -y ${NPM_PACKAGE_NAME}`,
+      pinned_install_command: `npx -y ${PINNED_NPM_PACKAGE}`,
+      binary: "delx-memory",
+    },
+    tools: [
+      "memory_agent_manifest",
+      "memory_connection_status",
+      "memory_data_inventory",
+      "memory_capabilities",
+      "memory_get",
+      "memory_list",
+      "memory_search",
+      "memory_stats",
+      "memory_set",
+      "memory_forget",
+      "memory_forget_by_tag",
+      "memory_export",
+    ],
+    agent_rules: [
+      "Call memory_agent_manifest or memory_connection_status on first contact.",
+      "Use memory_list / memory_stats before memory_get when exploring an unknown store.",
+      "Mutations (set/forget/export) require explicit_user_intent: true — never invent it.",
+      "privacy_mode=summary on read tools returns keys/meta without full values; structured (default) returns full entries.",
+      "Never store secrets, tokens, passwords, private keys or raw health measurements.",
+      "This is local SQLite under ~/.delx-memory/ — not a multi-user cloud store.",
+    ],
+    privacy_modes: [
+      { mode: "summary", use_when: "List/search without loading full values into context." },
+      { mode: "structured", use_when: "Default full entries (values included)." },
+      { mode: "raw", use_when: "Same as structured for local SQLite; kept for agent-surface parity." },
+    ],
+    links: {
+      github: "https://github.com/davidmosiah/delx-memory",
+      npm: "https://www.npmjs.com/package/delx-memory",
+    },
   };
 }
