@@ -7,6 +7,7 @@ import {
   getDb,
   getDbSizeBytes,
   isFtsReady,
+  prepareCached,
   resolveDbPath,
   sweepExpired,
   tagLikePattern,
@@ -124,22 +125,19 @@ interface SearchHit {
  * query produced no usable MATCH expression, so the caller can decide.
  */
 function ftsSearch(
-  db: ReturnType<typeof getDb>,
   query: string,
   limit: number,
 ): SearchHit[] | null {
   const match = buildFtsMatch(query);
   if (!match) return null;
-  const rows = db
-    .prepare<unknown[], MemoryRow & { rank: number }>(
-      `SELECT m.*, bm25(memory_fts, 5.0, 1.0, 2.0) AS rank
-       FROM memory_fts
-       JOIN memory m ON m.rowid = memory_fts.rowid
-       WHERE memory_fts MATCH ?
-       ORDER BY rank
-       LIMIT ?`,
-    )
-    .all(match, limit);
+  const rows = prepareCached<[string, number], MemoryRow & { rank: number }>(
+    `SELECT m.*, bm25(memory_fts, 5.0, 1.0, 2.0) AS rank
+     FROM memory_fts
+     JOIN memory m ON m.rowid = memory_fts.rowid
+     WHERE memory_fts MATCH ?
+     ORDER BY rank
+     LIMIT ?`,
+  ).all(match, limit);
   return rows.map((r) => ({
     key: r.key,
     // Negate bm25 (lower = better) into a positive descending score, rounded.
@@ -155,20 +153,17 @@ function ftsSearch(
  * build, or as a fallback if an FTS query unexpectedly errors.
  */
 function likeSearch(
-  db: ReturnType<typeof getDb>,
   query: string,
   limit: number,
 ): SearchHit[] {
   const escaped = query.replace(/[\\%_]/g, "\\$&");
   const pattern = `%${escaped}%`;
-  const rows = db
-    .prepare<unknown[], MemoryRow>(
-      `SELECT * FROM memory
-       WHERE key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\'
-       ORDER BY updated_at DESC
-       LIMIT ?`,
-    )
-    .all(pattern, pattern, Math.min(limit * 4, 400));
+  const rows = prepareCached<[string, string, number], MemoryRow>(
+    `SELECT * FROM memory
+     WHERE key LIKE ? ESCAPE '\\' OR value LIKE ? ESCAPE '\\'
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+  ).all(pattern, pattern, Math.min(limit * 4, 400));
   return rows
     .map((r) => ({ row: r, score: scoreMatch(r, query) }))
     .filter((s) => s.score > 0)
@@ -227,10 +222,9 @@ export function registerMemoryTools(server: McpServer): void {
     async () => {
       try {
         sweepExpired();
-        const db = getDb();
-        const countRow = db
-          .prepare<unknown[], { total: number }>("SELECT COUNT(*) AS total FROM memory")
-          .get();
+        const countRow = prepareCached<[], { total: number }>(
+          "SELECT COUNT(*) AS total FROM memory",
+        ).get();
         return makeResponse({
           ok: true,
           ready: true,
@@ -300,10 +294,9 @@ export function registerMemoryTools(server: McpServer): void {
         const input = MemoryGetInputSchema.parse(rawInput);
         const privacy = input.privacy_mode ?? "structured";
         sweepExpired();
-        const db = getDb();
-        const row = db
-          .prepare<unknown[], MemoryRow>("SELECT * FROM memory WHERE key = ?")
-          .get(input.key);
+        const row = prepareCached<[string], MemoryRow>(
+          "SELECT * FROM memory WHERE key = ?",
+        ).get(input.key);
         if (!row) {
           return makeResponse({ key: input.key, found: false, value: null, privacy_mode: privacy });
         }
@@ -391,7 +384,7 @@ export function registerMemoryTools(server: McpServer): void {
         let engine: "fts5" | "like" = "like";
         if (isFtsReady()) {
           try {
-            results = ftsSearch(db, input.query, input.limit);
+            results = ftsSearch(input.query, input.limit);
             if (results !== null) engine = "fts5";
           } catch {
             // FTS query failed unexpectedly — degrade to LIKE this call.
@@ -399,7 +392,7 @@ export function registerMemoryTools(server: McpServer): void {
           }
         }
         if (results === null) {
-          results = likeSearch(db, input.query, input.limit);
+          results = likeSearch(input.query, input.limit);
           engine = "like";
         }
 
@@ -442,22 +435,15 @@ export function registerMemoryTools(server: McpServer): void {
     async () => {
       try {
         sweepExpired();
-        const db = getDb();
-        const countRow = db
-          .prepare<unknown[], { total: number; oldest: number | null; newest: number | null }>(
-            "SELECT COUNT(*) AS total, MIN(created_at) AS oldest, MAX(updated_at) AS newest FROM memory",
-          )
-          .get();
-        const tagsRow = db
-          .prepare<unknown[], { with_tags: number }>(
-            "SELECT COUNT(*) AS with_tags FROM memory WHERE tags IS NOT NULL",
-          )
-          .get();
-        const ttlRow = db
-          .prepare<unknown[], { with_ttl: number }>(
-            "SELECT COUNT(*) AS with_ttl FROM memory WHERE ttl_expires_at IS NOT NULL",
-          )
-          .get();
+        const countRow = prepareCached<[], { total: number; oldest: number | null; newest: number | null }>(
+          "SELECT COUNT(*) AS total, MIN(created_at) AS oldest, MAX(updated_at) AS newest FROM memory",
+        ).get();
+        const tagsRow = prepareCached<[], { with_tags: number }>(
+          "SELECT COUNT(*) AS with_tags FROM memory WHERE tags IS NOT NULL",
+        ).get();
+        const ttlRow = prepareCached<[], { with_ttl: number }>(
+          "SELECT COUNT(*) AS with_ttl FROM memory WHERE ttl_expires_at IS NOT NULL",
+        ).get();
         return makeResponse({
           total_keys: countRow?.total ?? 0,
           keys_with_tags: tagsRow?.with_tags ?? 0,
@@ -516,14 +502,12 @@ export function registerMemoryTools(server: McpServer): void {
         const ttlAt = input.ttl_seconds ? now + input.ttl_seconds * 1000 : null;
 
         const db = getDb();
-        const existing = db
-          .prepare<unknown[], { created_at: number }>(
-            "SELECT created_at FROM memory WHERE key = ?",
-          )
-          .get(input.key);
+        const existing = prepareCached<[string], { created_at: number }>(
+          "SELECT created_at FROM memory WHERE key = ?",
+        ).get(input.key);
 
         if (existing) {
-          db.prepare(
+          prepareCached<[string, number, number | null, string | null, string | null, string]>(
             `UPDATE memory SET value = ?, updated_at = ?, ttl_expires_at = ?, tags = ?, metadata = ? WHERE key = ?`,
           ).run(serialized, now, ttlAt, tagsBlob, metadataBlob, input.key);
           return makeResponse({
@@ -535,7 +519,7 @@ export function registerMemoryTools(server: McpServer): void {
             bytes: byteLen,
           });
         }
-        db.prepare(
+        prepareCached<[string, string, number, number, number | null, string | null, string | null]>(
           `INSERT INTO memory (key, value, created_at, updated_at, ttl_expires_at, tags, metadata)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ).run(input.key, serialized, now, now, ttlAt, tagsBlob, metadataBlob);
@@ -568,8 +552,9 @@ export function registerMemoryTools(server: McpServer): void {
     async (rawInput) => {
       try {
         const input = MemoryForgetInputSchema.parse(rawInput);
-        const db = getDb();
-        const info = db.prepare("DELETE FROM memory WHERE key = ?").run(input.key);
+        const info = prepareCached<[string], { changes: number }>(
+          "DELETE FROM memory WHERE key = ?",
+        ).run(input.key);
         return makeResponse({
           key: input.key,
           existed: info.changes > 0,
@@ -596,10 +581,9 @@ export function registerMemoryTools(server: McpServer): void {
     async (rawInput) => {
       try {
         const input = MemoryForgetByTagInputSchema.parse(rawInput);
-        const db = getDb();
-        const info = db
-          .prepare(`DELETE FROM memory WHERE tags LIKE ? ESCAPE '\\'`)
-          .run(tagLikePattern(input.tag));
+        const info = prepareCached<[string], { changes: number }>(
+          `DELETE FROM memory WHERE tags LIKE ? ESCAPE '\\'`,
+        ).run(tagLikePattern(input.tag));
         return makeResponse({
           tag: input.tag,
           deleted_count: info.changes,

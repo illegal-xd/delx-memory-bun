@@ -1,7 +1,80 @@
-import Database from "better-sqlite3";
 import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { DEFAULT_DB_PATH } from "../constants.js";
+
+// ---------------------------------------------------------------------------
+// SQLite backend selection
+//
+// Node uses better-sqlite3 (synchronous native module). Bun hard-blocks
+// better-sqlite3 ("'better-sqlite3' is not yet supported in Bun",
+// oven-sh/bun#4290), so under Bun we use bun:sqlite, whose statement API is
+// compatible for our usage (exec/close/query + get/all/run). The switch
+// happens once at module load via top-level-await dynamic import, so only the
+// active runtime's backend module is ever loaded. Both backends conform to
+// the small SqliteDatabase interface below.
+// ---------------------------------------------------------------------------
+
+// Ambient type for bun:sqlite lives in src/types/bun-sqlite.d.ts so tsc (no
+// Bun types installed) can type-check the Bun branch; the real implementation
+// is resolved at runtime.
+
+/** Minimal statement surface shared by better-sqlite3 and bun:sqlite. */
+export interface SqliteStatement<T extends unknown[] = unknown[], R = unknown> {
+  get(...params: T): R | null | undefined;
+  all(...params: T): R[];
+  run(...params: T): { changes: number; lastInsertRowid: number | bigint };
+}
+
+/** Minimal database surface shared by better-sqlite3 and bun:sqlite. */
+export interface SqliteDatabase {
+  exec(sql: string): void;
+  close(): void;
+  prepare<T extends unknown[] = unknown[], R = unknown>(sql: string): SqliteStatement<T, R>;
+  /** better-sqlite3 only — the Bun backend applies PRAGMAs via exec(). */
+  pragma?(sql: string): unknown;
+}
+
+const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
+
+let DatabaseCtor: new (path: string) => SqliteDatabase;
+
+if (isBunRuntime) {
+  const { Database: BunDatabase } = await import("bun:sqlite");
+  DatabaseCtor = class BunCompatDatabase implements SqliteDatabase {
+    private inner: import("bun:sqlite").Database;
+    // bun:sqlite's run().changes is the CONNECTION-cumulative change count
+    // (sqlite3_total_changes semantics), whereas better-sqlite3 returns the
+    // count for just the executed statement. Callers (memory_set/forget/
+    // forget_by_tag, sweepExpired) rely on per-statement counts, so we probe
+    // SQLite's changes() right after each run. Single-threaded synchronous
+    // access makes this safe to share across statements.
+    private changesProbe: { get(): { c: number } | null };
+    constructor(path: string) {
+      this.inner = new BunDatabase(path);
+      this.changesProbe = this.inner.query("SELECT changes() AS c");
+    }
+    exec(sql: string): void {
+      this.inner.exec(sql);
+    }
+    close(): void {
+      this.inner.close();
+    }
+    prepare<T extends unknown[] = unknown[], R = unknown>(sql: string): SqliteStatement<T, R> {
+      const stmt = this.inner.query<T, R>(sql);
+      return {
+        get: (...params: T) => stmt.get(...params) as R | null | undefined,
+        all: (...params: T) => stmt.all(...params) as R[],
+        run: (...params: T) => {
+          const r = stmt.run(...params);
+          return { changes: this.changesProbe.get()?.c ?? 0, lastInsertRowid: r.lastInsertRowid };
+        },
+      };
+    }
+  };
+} else {
+  const mod = await import("better-sqlite3");
+  DatabaseCtor = mod.default as unknown as new (path: string) => SqliteDatabase;
+}
 
 export interface MemoryRow {
   key: string;
@@ -13,11 +86,14 @@ export interface MemoryRow {
   metadata: string | null;
 }
 
-let cachedDb: Database.Database | null = null;
+let cachedDb: SqliteDatabase | null = null;
 let cachedPath: string | null = null;
 // Per-connection cache of whether the FTS5 virtual table is usable. Reset
 // whenever the cached connection changes.
 let cachedFtsReady: boolean | null = null;
+// Prepared-statement cache keyed by SQL text. Statements are bound to the
+// cached connection, so the cache is cleared whenever the connection changes.
+const stmtCache = new Map<string, SqliteStatement>();
 
 export function resolveDbPath(): string {
   return process.env.DELX_MEMORY_PATH ?? DEFAULT_DB_PATH;
@@ -52,7 +128,7 @@ function ensureFileSecure(path: string): void {
  * first open. Idempotent. Returns the SAME connection on repeated calls
  * unless the path changed (only happens in tests that flip env vars).
  */
-export function getDb(): Database.Database {
+export function getDb(): SqliteDatabase {
   const path = resolveDbPath();
   if (cachedDb && cachedPath === path) return cachedDb;
   if (cachedDb && cachedPath !== path) {
@@ -60,15 +136,29 @@ export function getDb(): Database.Database {
     cachedDb = null;
     cachedPath = null;
     cachedFtsReady = null;
+    stmtCache.clear();
   }
 
   ensureParentDirSecure(path);
-  const db = new Database(path);
+  const db = new DatabaseCtor(path);
   ensureFileSecure(path);
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
-  db.pragma("foreign_keys = ON");
+  if (isBunRuntime) {
+    // bun:sqlite has no pragma(); PRAGMA statements via exec() are equivalent.
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA synchronous = NORMAL");
+    db.exec("PRAGMA foreign_keys = ON");
+    // Shrink the default page cache (2 MB) — this is a small KV store, not a
+    // warehouse. ~512 KB keeps hot pages resident without pinning extra RSS.
+    db.exec("PRAGMA cache_size = -512");
+  } else {
+    db.pragma!("journal_mode = WAL");
+    db.pragma!("synchronous = NORMAL");
+    db.pragma!("foreign_keys = ON");
+    // Shrink the default page cache (2 MB) — this is a small KV store, not a
+    // warehouse. ~512 KB keeps hot pages resident without pinning extra RSS.
+    db.pragma!("cache_size = -512");
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory (
@@ -95,7 +185,7 @@ export function getDb(): Database.Database {
  * Probe whether this SQLite build supports FTS5. Cheap (creates + drops a
  * temp virtual table). Some distro builds ship without the FTS5 module.
  */
-function ftsSupported(db: Database.Database): boolean {
+function ftsSupported(db: SqliteDatabase): boolean {
   try {
     db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp._delx_fts_probe USING fts5(x);");
     db.exec("DROP TABLE IF EXISTS temp._delx_fts_probe;");
@@ -112,7 +202,7 @@ function ftsSupported(db: Database.Database): boolean {
  * keep it in sync on insert/update/delete. Backfills any pre-existing rows
  * (e.g. a 0.1.x DB upgrading in place). Returns true if FTS5 is usable.
  */
-function setupFts(db: Database.Database): boolean {
+function setupFts(db: SqliteDatabase): boolean {
   if (!ftsSupported(db)) return false;
   try {
     db.exec(`
@@ -198,7 +288,23 @@ export function closeDb(): void {
     cachedDb = null;
     cachedPath = null;
     cachedFtsReady = null;
+    stmtCache.clear();
   }
+}
+
+/**
+ * Prepare (or reuse) a statement for the current connection. Statements are
+ * cached by SQL text so hot read paths don't recompile SQLite bytecode on
+ * every call. Cleared automatically when the connection changes.
+ */
+export function prepareCached<T extends unknown[] = unknown[], R = unknown>(
+  sql: string,
+): SqliteStatement<T, R> {
+  const cached = stmtCache.get(sql) as SqliteStatement<T, R> | undefined;
+  if (cached) return cached;
+  const stmt = getDb().prepare<T, R>(sql);
+  stmtCache.set(sql, stmt);
+  return stmt;
 }
 
 /**
@@ -206,8 +312,7 @@ export function closeDb(): void {
  * partial index on ttl_expires_at. Returns number of rows deleted.
  */
 export function sweepExpired(now: number = Date.now()): number {
-  const db = getDb();
-  const stmt = db.prepare(
+  const stmt = prepareCached<[number], { changes: number }>(
     "DELETE FROM memory WHERE ttl_expires_at IS NOT NULL AND ttl_expires_at <= ?",
   );
   const info = stmt.run(now);

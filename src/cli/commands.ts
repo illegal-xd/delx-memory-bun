@@ -1,6 +1,5 @@
 import { existsSync, statSync } from "node:fs";
 import { SERVER_NAME, SERVER_VERSION, PINNED_NPM_PACKAGE } from "../constants.js";
-import { resolveDbPath, getDbSizeBytes, getDb, sweepExpired } from "../services/db.js";
 
 export async function runCliCommand(args: string[]): Promise<number | undefined> {
   const [command, ...rest] = args;
@@ -23,7 +22,8 @@ export async function runCliCommand(args: string[]): Promise<number | undefined>
   return undefined;
 }
 
-function runSetup(args: string[]): number {
+async function runSetup(args: string[]): Promise<number> {
+  const { resolveDbPath, getDbSizeBytes, getDb, sweepExpired } = await import("../services/db.js");
   const json = args.includes("--json");
   const path = resolveDbPath();
   const env = process.env.DELX_MEMORY_PATH ? "DELX_MEMORY_PATH env override" : "default";
@@ -66,6 +66,7 @@ function runSetup(args: string[]): number {
 }
 
 async function runDoctor(args: string[]): Promise<number> {
+  const { resolveDbPath, getDb, sweepExpired } = await import("../services/db.js");
   const json = args.includes("--json");
   const strict = args.includes("--strict");
   const path = resolveDbPath();
