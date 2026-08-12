@@ -1,6 +1,6 @@
 {
   "name": "delx-memory",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local-first persistent memory MCP server. Shared SQLite store for Claude Desktop, Cursor, Hermes, OpenClaw, Codex.",
   "type": "module",
   "bin": {
@@ -26,6 +26,7 @@
     "dev": "tsx src/index.ts",
     "smoke": "node scripts/smoke-tools.mjs",
     "smoke:lite": "bun scripts/smoke-lite.mjs",
+    "bench:rss": "node scripts/bench-rss.mjs",
     "test:secret-detector": "node scripts/test-secret-detector.mjs",
     "test:ttl": "node scripts/test-ttl.mjs",
     "test:bulk-tag-delete": "node scripts/test-bulk-tag-delete.mjs",

@@ -11,6 +11,7 @@ declare module "bun:sqlite" {
     constructor(path: string, options?: { readonly?: boolean });
     exec(sql: string): void;
     close(): void;
+    transaction<T extends unknown[] = [], R = unknown>(fn: (...args: T) => R): (...args: T) => R;
     query<T extends unknown[] = unknown[], R = unknown>(sql: string): {
       get(...params: T): R | null;
       all(...params: T): R[];

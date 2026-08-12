@@ -1,3 +1,15 @@
+## 0.4.0 - 2026-08-12
+
+SOTA-oriented agent memory release (still local-first, still no embeddings/cloud). Upstream integration into the bun fork — transport architecture unchanged (lite default preserved).
+
+- **`memory_handoff`** — one-call session resume brief (stats + recent keys).
+- **`memory_get_many` / `memory_set_batch`** — batch read/write (max 50), batch writes are transactional (`db.transaction`, verified on bun:sqlite).
+- **`memory_list.since`** — delta sync by `updated_at` for session resume.
+- **`DELX_MEMORY_NAMESPACE`** — multi-agent key isolation (`namespace::key`).
+- SQLite **`busy_timeout=5000`** (WAL already on) for concurrent agent writers — bun branch applies it via `exec("PRAGMA busy_timeout = 5000")` (bun:sqlite has no `pragma()`).
+- `scripts/bench-rss.mjs` — directional lite vs sdk RSS probe.
+- Docs/README: accurate 15-tool surface.
+
 ## 0.3.0 - 2026-08-12
 
 ### Added / Changed (upstream 0.3.0 integration, bun fork)

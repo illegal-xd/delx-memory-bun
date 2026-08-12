@@ -32,6 +32,8 @@ export interface SqliteDatabase {
   prepare<T extends unknown[] = unknown[], R = unknown>(sql: string): SqliteStatement<T, R>;
   /** better-sqlite3 only — the Bun backend applies PRAGMAs via exec(). */
   pragma?(sql: string): unknown;
+  /** Transaction wrapper — better-sqlite3 native; bun:sqlite since 1.2. */
+  transaction<T extends unknown[] = [], R = unknown>(fn: (...args: T) => R): (...args: T) => R;
 }
 
 const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
@@ -58,6 +60,9 @@ if (isBunRuntime) {
     }
     close(): void {
       this.inner.close();
+    }
+    transaction<T extends unknown[] = [], R = unknown>(fn: (...args: T) => R): (...args: T) => R {
+      return this.inner.transaction(fn);
     }
     prepare<T extends unknown[] = unknown[], R = unknown>(sql: string): SqliteStatement<T, R> {
       const stmt = this.inner.query<T, R>(sql);
@@ -97,6 +102,42 @@ const stmtCache = new Map<string, SqliteStatement>();
 
 export function resolveDbPath(): string {
   return process.env.DELX_MEMORY_PATH ?? DEFAULT_DB_PATH;
+}
+
+/**
+ * Optional multi-agent isolation. When DELX_MEMORY_NAMESPACE is set, all keys
+ * are stored as `${namespace}::${key}` and list/search are scoped to that prefix.
+ * Empty/unset = global store (default, backward compatible).
+ */
+export function resolveNamespace(): string | null {
+  const raw = (process.env.DELX_MEMORY_NAMESPACE ?? "").trim();
+  if (!raw) return null;
+  // forbid separators that break our prefix scheme
+  if (raw.includes("::") || /[\x00-\x1f]/.test(raw)) {
+    throw new Error("DELX_MEMORY_NAMESPACE must not contain '::' or control characters");
+  }
+  if (raw.length > 64) throw new Error("DELX_MEMORY_NAMESPACE max 64 chars");
+  return raw;
+}
+
+export function namespacedKey(key: string): string {
+  const ns = resolveNamespace();
+  return ns ? `${ns}::${key}` : key;
+}
+
+export function displayKey(storedKey: string): string {
+  const ns = resolveNamespace();
+  if (!ns) return storedKey;
+  const prefix = `${ns}::`;
+  return storedKey.startsWith(prefix) ? storedKey.slice(prefix.length) : storedKey;
+}
+
+export function namespacePrefixPattern(): string | null {
+  const ns = resolveNamespace();
+  if (!ns) return null;
+  // escape LIKE wildcards in namespace itself
+  const escaped = ns.replace(/[\\%_]/g, "\\$&");
+  return `${escaped}::%`;
 }
 
 function ensureParentDirSecure(path: string): void {
@@ -148,6 +189,7 @@ export function getDb(): SqliteDatabase {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
     db.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA busy_timeout = 5000"); // multi-agent concurrent writers
     // Shrink the default page cache (2 MB) — this is a small KV store, not a
     // warehouse. ~512 KB keeps hot pages resident without pinning extra RSS.
     db.exec("PRAGMA cache_size = -512");
@@ -155,6 +197,7 @@ export function getDb(): SqliteDatabase {
     db.pragma!("journal_mode = WAL");
     db.pragma!("synchronous = NORMAL");
     db.pragma!("foreign_keys = ON");
+    db.pragma!("busy_timeout = 5000"); // multi-agent concurrent writers
     // Shrink the default page cache (2 MB) — this is a small KV store, not a
     // warehouse. ~512 KB keeps hot pages resident without pinning extra RSS.
     db.pragma!("cache_size = -512");

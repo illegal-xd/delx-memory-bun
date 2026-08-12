@@ -16,7 +16,7 @@ Every chat client has its own ephemeral context. Quit the tab → preferences go
 
 `delx-memory` is a tiny MCP server that exposes a single shared SQLite file as a key/value memory layer. Any client that speaks MCP can read and write the same memory file → real continuity, real cross-tool context.
 
-- 12 MCP tools — 8 read-only, 4 mutating.
+- 15 MCP tools — 11 read-only, 4 mutating.
 - SQLite at `~/.delx-memory/db.sqlite` (0700 dir, 0600 file).
 - **Secret-blocking**: refuses to store credential-shaped keys or values.
 - TTL support (lazy expiry on read).
@@ -112,7 +112,7 @@ See [`examples/codex.toml`](./examples/codex.toml).
 
 ---
 
-## The 12 tools
+## The 15 tools
 
 ### Reads (always safe — call without confirmation)
 
@@ -122,8 +122,10 @@ See [`examples/codex.toml`](./examples/codex.toml).
 | `memory_connection_status` | Local SQLite path readiness and size. Safe first call every session. |
 | `memory_data_inventory` | Static inventory of memory domains, privacy modes and recommended first calls. |
 | `memory_capabilities` | Self-description of this MCP incl. privacy modes and mutation gating. |
+| `memory_handoff` | One-call session resume brief: store stats + most recent keys (optional values) + agent instructions. |
+| `memory_get_many` | Batch exact-key lookup (max 50). Missing keys omitted. |
 | `memory_stats` | High-level: total keys, DB size, oldest entry, DB path. **Start here on any session.** |
-| `memory_list` | List keys (not values) with optional prefix or tag filter. |
+| `memory_list` | List keys (not values) with optional prefix, tag or **`since`** (updated_at) filter. |
 | `memory_get` | Exact key lookup. Returns value + timestamps + tags + metadata. |
 | `memory_search` | FTS5 full-text search across keys, values and tags — bm25 relevance ranking, stemming, diacritic folding, prefix matching; LIKE fallback if FTS5 is missing. Returns snippets. See the [search quickstart](./examples/fts5-search.md). |
 
@@ -131,6 +133,7 @@ See [`examples/codex.toml`](./examples/codex.toml).
 
 | Tool | Purpose |
 |---|---|
+| `memory_set_batch` | Atomic multi-entry upsert (max 50, one transaction). |
 | `memory_set` | Upsert a key. Rejects credential-shaped keys/values. |
 | `memory_forget` | Delete one key. Idempotent. |
 | `memory_forget_by_tag` | Bulk-delete every entry carrying a given tag. |

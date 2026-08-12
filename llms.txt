@@ -6,9 +6,9 @@ Primary command: npm exec --yes --package=delx-memory -- delx-memory doctor
 MCP command: delx-memory
 
 - MCP registry name: io.github.davidmosiah/delx-memory
-- 12 tools, 8 read-only (always safe), 4 mutations (require explicit_user_intent: true).
-- Read-only tools: memory_agent_manifest, memory_connection_status, memory_data_inventory, memory_capabilities, memory_stats, memory_list, memory_get, memory_search.
-- Mutation tools: memory_set, memory_forget, memory_forget_by_tag, memory_export.
+- 15 tools, 11 read-only (always safe), 4 mutations (require explicit_user_intent: true).
+- Read-only tools: memory_agent_manifest, memory_connection_status, memory_data_inventory, memory_capabilities, memory_handoff, memory_get_many, memory_stats, memory_list, memory_get, memory_search, memory_export (export is read-only but gated).
+- Mutation tools: memory_set, memory_set_batch, memory_forget, memory_forget_by_tag.
 - On a fresh session, start with memory_stats then memory_list to discover what is already remembered.
 - delx-memory is NOT a secrets manager. Credential-shaped keys (oauth/token/secret/password/cookie/refresh/api_key/bearer/credential/session_id) are refused. Credential-shaped string values (JWT, Bearer ..., sk_live_, xoxb-, github_pat_, ghp_, sk-..., AKIA..., Authorization: ...) are refused. Use a system keychain for credentials.
 - Storage: SQLite at ~/.delx-memory/db.sqlite (override via DELX_MEMORY_PATH). Directory 0700, file 0600 (best effort on non-POSIX).
