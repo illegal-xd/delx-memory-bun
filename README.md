@@ -16,13 +16,47 @@ Every chat client has its own ephemeral context. Quit the tab → preferences go
 
 `delx-memory` is a tiny MCP server that exposes a single shared SQLite file as a key/value memory layer. Any client that speaks MCP can read and write the same memory file → real continuity, real cross-tool context.
 
-- 8 MCP tools — 4 read-only, 4 mutating.
+- 12 MCP tools — 8 read-only, 4 mutating.
 - SQLite at `~/.delx-memory/db.sqlite` (0700 dir, 0600 file).
 - **Secret-blocking**: refuses to store credential-shaped keys or values.
 - TTL support (lazy expiry on read).
 - Tags + prefix filters + FTS5 full-text search (bm25 ranking, stemming, diacritic folding; LIKE fallback if FTS5 is unavailable).
 - Mutations require `explicit_user_intent: true` so over-eager agents can't silently rewrite your context.
 - Zero telemetry. Zero phone-home. The file is yours.
+
+---
+
+## Footprint / lightweight mode
+
+- **Default transport is `lite`**: tools-only MCP over stdio **without loading the MCP SDK** (biggest RSS win for always-on agents).
+- Full SDK surface (prompts + resources): `delx-memory --sdk` or `DELX_MEMORY_TRANSPORT=sdk`.
+- Optional HTTP: `delx-memory --http` (native `node:http`, no Express; still loopback by default).
+- `DELX_MEMORY_LEAN=1` applies to the **SDK** path only (skip prompts/resources).
+- `doctor` reports `transport_default` / `transports` / `rss_kb` (via `--json`). Dominant cost is the runtime + SQLite (no embeddings).
+
+Measured idle RSS on this fork (Bun 1.3.2, macOS): lite ~47 MB, sdk ~68 MB, http boot ~24 MB before first request (SDK loaded lazily per request).
+
+---
+
+## Bun runtime (this fork)
+
+This fork runs natively under **Bun** (`bun:sqlite` backend with a better-sqlite3 fallback for Node), and keeps the HTTP transport on `node:http` instead of Express.
+
+```bash
+bun install
+bun run build      # tsc → dist/
+bun dist/index.js              # lite stdio (default)
+bun dist/index.js --http       # HTTP on 127.0.0.1:3030
+```
+
+PM2 deployment (container-safe spawner):
+
+```bash
+pmx=false pm2 start scripts/pm2-bun-spawner.cjs --name delx-memory-bun \
+  --interpreter bun --interpreter-args "--smol"
+```
+
+`pmx=false` disables `@pm2/io` injection in the PM2 container (~16 MB RSS). The spawner keeps the PM2 container tiny and delegates the real server to a bare `bun dist/index.js --http` child (~24 MB boot RSS).
 
 ---
 
@@ -78,12 +112,16 @@ See [`examples/codex.toml`](./examples/codex.toml).
 
 ---
 
-## The 8 tools
+## The 12 tools
 
 ### Reads (always safe — call without confirmation)
 
 | Tool | Purpose |
 |---|---|
+| `memory_agent_manifest` | Machine-readable install & operating instructions for AI agents. Call first when onboarding. |
+| `memory_connection_status` | Local SQLite path readiness and size. Safe first call every session. |
+| `memory_data_inventory` | Static inventory of memory domains, privacy modes and recommended first calls. |
+| `memory_capabilities` | Self-description of this MCP incl. privacy modes and mutation gating. |
 | `memory_stats` | High-level: total keys, DB size, oldest entry, DB path. **Start here on any session.** |
 | `memory_list` | List keys (not values) with optional prefix or tag filter. |
 | `memory_get` | Exact key lookup. Returns value + timestamps + tags + metadata. |
@@ -179,7 +217,8 @@ agent> memory_get({ key: "user_preferences" })
 ## CLI
 
 ```
-delx-memory                Start MCP stdio server
+delx-memory                Start MCP server (lite stdio — tools-only, no MCP SDK)
+delx-memory --sdk          Full MCP SDK stdio (prompts + resources)
 delx-memory --http         Start local HTTP MCP server (127.0.0.1:3030)
 delx-memory setup          Print MCP client config snippets
 delx-memory setup --json   Print as JSON
@@ -193,7 +232,8 @@ delx-memory version        Print version
 | Var | Default | Purpose |
 |---|---|---|
 | `DELX_MEMORY_PATH` | `~/.delx-memory/db.sqlite` | DB file location |
-| `DELX_MEMORY_TRANSPORT` | `stdio` | `stdio` or `http` |
+| `DELX_MEMORY_TRANSPORT` | `lite` | `lite` (tools-only stdio, no SDK), `sdk` (full stdio), or `http` |
+| `DELX_MEMORY_LEAN` | — | `1` on SDK path: skip prompts/resources |
 | `DELX_MEMORY_HOST` | `127.0.0.1` | HTTP host |
 | `DELX_MEMORY_PORT` | `3030` | HTTP port |
 | `DELX_MEMORY_ALLOWED_ORIGIN` | `http://HOST:PORT` | CORS origin |

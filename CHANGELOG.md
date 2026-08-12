@@ -1,3 +1,18 @@
+## 0.3.0 - 2026-08-12
+
+### Added / Changed (upstream 0.3.0 integration, bun fork)
+
+- **Lite stdio transport (default):** newline JSON-RPC tools path that does **not** load `@modelcontextprotocol/sdk` at boot (`--lite` / `DELX_MEMORY_TRANSPORT=lite`). Lowest RSS for always-on agents.
+- **SDK path:** `--sdk` / `DELX_MEMORY_TRANSPORT=sdk` for full prompts + resources (previous default surface).
+- **Tool catalog behind a facade** (`tool-registry.ts` + `catalog.ts`): handlers captured once via `capturingServer()`, shared by lite + SDK — core/adapter separation at the transport boundary.
+- **HTTP transport extracted** to `http-server.ts`, still native `node:http` (no Express/CORS) — bun fork RSS optimization preserved.
+- Smoke: full suite on `--sdk`; new `smoke:lite` (runs under `bun`, exercising the `bun:sqlite` backend).
+- `doctor` reports `transport_default` / `transports` / `lean_mode`.
+- **HTTP boot RSS fix**: deferred `sdk-stdio` load to first request (lazy server factory) — boot RSS 71MB → 24MB (0.3.0 initial integration paid the full MCP SDK dependency tree at startup; request steady-state also improved 78 → 76MB).
+- **sdk-stdio internal lazy loading**: `createSdkServer()` is now async and imports McpServer/tools/prompts/resources inside the factory — merely loading `sdk-stdio.js` no longer pulls the SDK dependency tree.
+- **PM2 container RSS**: rebuilt with `pmx=false` (disables `@pm2/io` injection in the pm2 container process) — container 35MB → 19MB. Server child is unaffected (already a bare bun process).
+- Note: reusing one `McpServer` across HTTP requests is not possible — the MCP SDK `Protocol.connect()` throws if already connected (per-request server is the SDK's stateless-HTTP contract). Per-request server creation measured at ~8-15ms, acceptable; further HTTP memory work would require a custom streamable-HTTP transport (see `experience:no-sdk-jsonrpc-memory-gain`).
+
 ## 0.2.5 - 2026-07-30
 
 ### Added / Fixed
