@@ -96,10 +96,22 @@ async function runDoctor(args: string[]): Promise<number> {
     }
   }
   const ok = checks.node_supported && checks.db_writable && checks.permissions_ok;
+  const lean =
+    process.env.DELX_MEMORY_LEAN === "1" ||
+    process.env.DELX_MEMORY_LEAN === "true";
   const result = {
     ok,
     server: SERVER_NAME,
     version: SERVER_VERSION,
+    lean_mode: lean,
+    transport_default: "lite",
+    transports: {
+      lite: "tools-only stdio without MCP SDK (default)",
+      sdk: "full MCP SDK stdio with prompts/resources",
+      http: "Streamable HTTP on 127.0.0.1 (native node:http, no Express)",
+    },
+    note_footprint:
+      "Default path is already SQLite+FTS (no embeddings). HTTP loads only with --http. Set DELX_MEMORY_LEAN=1 for tools-only (skip prompts/resources).",
     npm_package: PINNED_NPM_PACKAGE,
     checks,
     next_steps: ok
