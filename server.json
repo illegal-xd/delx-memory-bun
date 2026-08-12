@@ -6,12 +6,12 @@
     "url": "https://github.com/davidmosiah/delx-memory",
     "source": "github"
   },
-  "version": "0.2.5",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "delx-memory",
-      "version": "0.2.5",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -25,7 +25,7 @@
         },
         {
           "name": "DELX_MEMORY_TRANSPORT",
-          "description": "Optional transport: stdio (default) or http.",
+          "description": "Optional transport: lite (default, tools-only stdio without MCP SDK), sdk (full stdio with prompts/resources) or http.",
           "isRequired": false,
           "format": "string",
           "isSecret": false
