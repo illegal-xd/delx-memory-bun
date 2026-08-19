@@ -84,6 +84,22 @@ pmx=false pm2 start scripts/pm2-bun-spawner.cjs --name delx-memory-bun \
 
 ---
 
+## HTTP (v2 stateless)
+
+默认是 **stdio**。可选 Streamable HTTP —— 无 session id、JSON 响应、仅回环地址（loopback）：
+
+```bash
+bun dist/index.js --http
+# GET  http://127.0.0.1:3030/health
+# POST http://127.0.0.1:3030/mcp   (sessionless)
+```
+
+本分支 HTTP 用原生 `node:http` 实现（替代上游的 Express + cors，省内存；SDK 首个请求才懒加载）。
+
+Env: `DELX_MEMORY_HOST`、`DELX_MEMORY_PORT`、`DELX_MEMORY_TRANSPORT=http`。
+
+---
+
 ## Wire it into your MCP client
 
 ### Claude Desktop
