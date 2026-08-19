@@ -10,6 +10,16 @@ SOTA-oriented agent memory release (still local-first, still no embeddings/cloud
 - `scripts/bench-rss.mjs` — directional lite vs sdk RSS probe.
 - Docs/README: accurate 15-tool surface.
 
+## 0.4.0 follow-up (2026-08-19) — upstream post-0.4.0 docs/CI sync
+
+Upstream commits after the 0.4.0 release integrated into the bun fork (no code change — the 0.4.0 feature surface was already in place; this sync catches the doc/CI/community surface):
+
+- `.github/dependabot.yml` — security-only monthly updates (high/critical advisories, grouped security PRs; matches upstream a3888f9).
+- `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1 (upstream 094d6e8).
+- `docs/BENCHMARKS.md` — directional lite vs sdk RSS benchmark notes (upstream 6007879).
+- `docs/drafts/2026-08-12-x-post-delx-memory.md` — upstream 0.4.0 release draft (kept as-is for parity).
+- README: **HTTP (v2 stateless)** section added — `--http` /health + sessionless `/mcp`, adapted to the bun branch (native `node:http`, no Express).
+
 ## 0.3.0 - 2026-08-12
 
 ### Added / Changed (upstream 0.3.0 integration, bun fork)
