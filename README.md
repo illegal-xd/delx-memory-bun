@@ -80,7 +80,7 @@ pmx=false pm2 start scripts/pm2-bun-spawner.cjs --name delx-memory-bun \
 
 - `pmx=false` 关闭 PM2 容器的 `@pm2/io` 注入（省 ~16 MB RSS）。
 - spawner（容器 CJS，~19 MB）委托子进程 `bun dist/index.js --http`（boot ~24 MB）。
-- 健康检查：`curl http://127.0.0.1:3030/health` → `{"ok":true,"name":"delx-memory","version":"0.4.0"}`
+- 健康检查：`curl http://127.0.0.1:3030/health` → `{"ok":true,"name":"delx-memory","version":"0.4.1"}`
 
 ---
 
@@ -292,7 +292,7 @@ See [`AGENTS.md`](./AGENTS.md) for repo conventions, [`SECURITY.md`](./SECURITY.
 
 ## Changelog
 
-本分支版本历史见 [`CHANGELOG.md`](./CHANGELOG.md)（0.4.0：handoff/batch/namespaces/since + bun 适配；0.3.0：lite transport + tool catalog 架构）。
+本分支版本历史见 [`CHANGELOG.md`](./CHANGELOG.md)（0.4.1：namespace 隔离覆盖 export/tag-delete/list/handoff + 安全依赖升级；0.4.0：handoff/batch/namespaces/since + bun 适配；0.3.0：lite transport + tool catalog 架构）。
 
 ## License
 
