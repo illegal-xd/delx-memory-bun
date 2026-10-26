@@ -20,6 +20,17 @@ Upstream commits after the 0.4.0 release integrated into the bun fork (no code c
 - `docs/drafts/2026-08-12-x-post-delx-memory.md` — upstream 0.4.0 release draft (kept as-is for parity).
 - README: **HTTP (v2 stateless)** section added — `--http` /health + sessionless `/mcp`, adapted to the bun branch (native `node:http`, no Express).
 
+## 0.4.1 - 2026-10-26 — namespace isolation for export, tag deletion, list and handoff
+
+Port of upstream `b28224c` (*fix: isolate memory export and tag deletion by namespace*). Both tools previously ignored `DELX_MEMORY_NAMESPACE`, so a scoped agent could read — and bulk-delete — other agents' rows (including global, non-namespaced entries).
+
+- **`memory_forget_by_tag`** — DELETE now adds `AND instr(key, ?) = 1` with the literal `namespace::` prefix when a namespace is set. `instr` is used instead of `LIKE` on purpose: it is case-sensitive and treats `%`/`_`/`\` in a namespace literally.
+- **`memory_export`** — the same `instr` predicate is prepended to the WHERE clauses, so `since`/`until` still compose. Unset namespace keeps the previous global behavior.
+- `scripts/test-bulk-tag-delete.mjs` — rewritten against the real tool handlers (upstream `b28224c`): 5 `node:test` cases covering exact-tag deletion, `explicit_user_intent` gating, all three export formats, date-filter composition, idempotent re-delete, and two namespace pairs (`team_%\lab` vs `teamXYlab`, `team` vs `TEAM`) that differ at LIKE wildcard/backslash and case positions.
+- **Read paths too (fork-only, upstream not fixed):** `memory_list` and `memory_handoff` still scoped with `key LIKE 'ns::%'`, which is ASCII case-insensitive — under `DELX_MEMORY_NAMESPACE=team` they also returned `TEAM::…` rows (export/delete were already correct after the port). Both now use `instr(key, ?) = 1` via the new `namespaceKeyPrefix()` helper in `src/services/db.ts`, which is also reused by `memory_export` / `memory_forget_by_tag`. Divergence tracked in `docs/UPSTREAM-DIVERGENCES.md`; extra `list and handoff isolate namespace team from TEAM` test case added (fails on upstream's code path).
+- Dependencies refreshed to the same targets as upstream's security bump: `@modelcontextprotocol/sdk` 1.32.x, `zod` 4.6.x, `better-sqlite3` 12.11.x, `proxy-addr` 2.0.8, `ip-address` 10.7.x, `fast-uri` 3.1.9. Both lockfiles updated (`package-lock.json` tracked, `pnpm-lock.yaml` local), and the `package.json` ranges were raised to the security floor (upstream bumped the lock only). Full `npm test` green on node 25 and bun 1.3.
+- Dev-env note: `packageManager` pins `pnpm@11.0.9` while the global pnpm is 12.x, which fails with `ERR_PNPM_LOCKFILE_READ_FILE` — use `npx -y pnpm@11.0.9 <cmd>`. pnpm also ignores npm `overrides`, so `hono` / `@hono/node-server` resolve above the pinned versions under pnpm but are honoured by npm (see `docs/UPSTREAM-DIVERGENCES.md`).
+
 ## 0.3.0 - 2026-08-12
 
 ### Added / Changed (upstream 0.3.0 integration, bun fork)

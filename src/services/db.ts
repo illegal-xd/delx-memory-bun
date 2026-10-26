@@ -140,6 +140,18 @@ export function namespacePrefixPattern(): string | null {
   return `${escaped}::%`;
 }
 
+/**
+ * Literal namespace key prefix (`${namespace}::`) or null when unset.
+ *
+ * Use this with `instr(key, ?) = 1` rather than with LIKE: SQLite's LIKE is
+ * ASCII case-insensitive and treats `%`/`_`/`\` as patterns, so a namespace
+ * like `team` would also match `TEAM::…`. `instr` compares raw bytes.
+ */
+export function namespaceKeyPrefix(): string | null {
+  const ns = resolveNamespace();
+  return ns ? `${ns}::` : null;
+}
+
 function ensureParentDirSecure(path: string): void {
   const dir = dirname(path);
   if (!existsSync(dir)) {

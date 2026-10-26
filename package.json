@@ -1,6 +1,6 @@
 {
   "name": "delx-memory",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local-first persistent memory MCP server. Shared SQLite store for Claude Desktop, Cursor, Hermes, OpenClaw, Codex.",
   "type": "module",
   "bin": {
@@ -54,16 +54,16 @@
     "url": "https://github.com/sponsors/davidmosiah"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.21.0",
-    "better-sqlite3": "^12.9.0",
-    "zod": "^4.4.1"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-sqlite3": "^12.11.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.6.0",
-    "tsx": "^4.20.6",
+    "@types/node": "^25.9.9",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   },
   "engines": {

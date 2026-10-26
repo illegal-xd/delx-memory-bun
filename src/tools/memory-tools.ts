@@ -9,7 +9,7 @@ import {
   getDbSizeBytes,
   isFtsReady,
   namespacedKey,
-  namespacePrefixPattern,
+  namespaceKeyPrefix,
   prepareCached,
   resolveDbPath,
   resolveNamespace,
@@ -365,16 +365,17 @@ export function registerMemoryTools(server: ToolServerFacade): void {
         const db = getDb();
         const clauses: string[] = [];
         const params: unknown[] = [];
-        // Namespace isolation: always constrain to ns:: when configured
+        // Namespace isolation: always constrain to ns:: when configured.
+        // instr (not LIKE) — LIKE is case-insensitive, so `team::%` would match
+        // `TEAM::…` too. See docs/UPSTREAM-DIVERGENCES.md.
+        const namespacePrefix = namespaceKeyPrefix();
+        if (namespacePrefix) {
+          clauses.push("instr(key, ?) = 1");
+          params.push(namespacePrefix);
+        }
         if (input.prefix) {
           clauses.push(`key LIKE ? ESCAPE '\\'`);
           params.push(namespacedKey(input.prefix).replace(/[\\%_]/g, "\\$&") + "%");
-        } else {
-          const nsPat = namespacePrefixPattern();
-          if (nsPat) {
-            clauses.push(`key LIKE ? ESCAPE '\\'`);
-            params.push(nsPat);
-          }
         }
         if (input.tag) {
           clauses.push(`tags LIKE ? ESCAPE '\\'`);
@@ -655,9 +656,15 @@ export function registerMemoryTools(server: ToolServerFacade): void {
       try {
         const input = MemoryForgetByTagInputSchema.parse(rawInput);
         const db = getDb();
-        const info = db
-          .prepare(`DELETE FROM memory WHERE tags LIKE ? ESCAPE '\\'`)
-          .run(tagLikePattern(input.tag));
+        const namespacePrefix = namespaceKeyPrefix();
+        // instr matches the literal prefix case-sensitively, including LIKE wildcards.
+        const info = namespacePrefix
+          ? db
+              .prepare(`DELETE FROM memory WHERE tags LIKE ? ESCAPE '\\' AND instr(key, ?) = 1`)
+              .run(tagLikePattern(input.tag), namespacePrefix)
+          : db
+              .prepare(`DELETE FROM memory WHERE tags LIKE ? ESCAPE '\\'`)
+              .run(tagLikePattern(input.tag));
         return makeResponse({
           tag: input.tag,
           deleted_count: info.changes,
@@ -687,6 +694,11 @@ export function registerMemoryTools(server: ToolServerFacade): void {
         const db = getDb();
         const clauses: string[] = [];
         const params: unknown[] = [];
+        const namespacePrefix = namespaceKeyPrefix();
+        if (namespacePrefix) {
+          clauses.push("instr(key, ?) = 1");
+          params.push(namespacePrefix);
+        }
         if (typeof input.since === "number") {
           clauses.push("updated_at >= ?");
           params.push(input.since);
@@ -875,10 +887,11 @@ export function registerMemoryTools(server: ToolServerFacade): void {
         const db = getDb();
         const clauses: string[] = [];
         const params: unknown[] = [];
-        const nsPat = namespacePrefixPattern();
-        if (nsPat) {
-          clauses.push(`key LIKE ? ESCAPE '\\'`);
-          params.push(nsPat);
+        // instr keeps the scope case-sensitive (LIKE would match TEAM:: for ns=team).
+        const namespacePrefix = namespaceKeyPrefix();
+        if (namespacePrefix) {
+          clauses.push("instr(key, ?) = 1");
+          params.push(namespacePrefix);
         }
         const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
         const countRow = db
