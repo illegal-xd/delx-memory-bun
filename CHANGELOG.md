@@ -1,3 +1,49 @@
+## 0.4.2 - 2026-11-11 — 上游 0.4.2 移植（命名空间读隔离 / FTS 引导 / 入参上限 / skill 与 CLI）
+
+Port of upstream `dc6d936` (0.4.2) plus the commits it bundles (`00e4540`, `f1fa6dc`,
+`8f43297`, `9eba180`, `1af3ef2`). Bun-specific implementations are noted inline and
+tracked in `docs/UPSTREAM-DIVERGENCES.md`.
+
+### Fixed
+
+- **搜索命名空间隔离提前到 LIMIT 之前** — `ftsSearch` / `likeSearch` 现在把
+  `instr(key, 'ns::') = 1` 带进 SQL，再 `LIMIT`。此前是取完 limit 条再后置过滤，
+  别的 namespace 的命中会占掉结果槽位，导致自己的记忆「查不到」（recall 饥饿）。
+  LIKE 分支同时补了括号，避免未加括号的 `OR` 绕过 scope。新增
+  `scripts/test-memory-search-recall-integration.mjs`（含 5 组 namespace 对，
+  FTS 与 LIKE 两条路径都对比期望排序）。
+- **FTS 引导原子化** — 建表/触发器 + 计数比对 + rebuild 收进一个写锁事务。
+  计数从 `COUNT(*) FROM memory_fts` 改为 `memory_fts_docsize`：external-content
+  表的裸 SELECT 读的是内容表，旧写法永远测不出空索引，遗留库/半索引库不会被修复。
+  事务用显式 `BEGIN IMMEDIATE`/`COMMIT`（`exec()`）实现，`bun:sqlite` 没有
+  `transaction().immediate()`。新增 `scripts/test-fts-bootstrap.mjs`（含 COMMIT 前
+  杀进程的崩溃回滚用例）。
+- **SDK 入参元素上限** — `McpServer({ maxToolInputElements: 10_000 })`，stdio 与
+  HTTP 都在 schema 校验前拒绝超限参数。新增 `scripts/test-input-limits.mjs`。
+- **HTTP 压缩体拒绝** — 非 identity `Content-Encoding` 直接 415（不再把压缩字节当
+  JSON 解析成 400），超 1 MiB 改为「排空后 413」，客户端能正常收到响应而不是
+  连接被重置。
+
+### Added
+
+- **`delx-memory call <tool> --json '{...}'`** — 不需要 MCP 客户端即可调用同一套工具，
+  mutation gate 完全一致（`src/cli/tool-calls.ts`，按需 lazy import，doctor/setup 不受影响）。
+- **`skill/SKILL.md`** — 包内 skill 层，`package.json` files 增加 `skill`。
+- **`agent-plugin/`** — Agent Plugins v1 包（Hermes 等客户端），含 `plugin.json`、
+  `mcp.json`、`skills/delx-memory/SKILL.md`。
+- **测试/CI 加固** — `test-namespace-isolation`、`test-transport-contracts`
+  （lite/sdk/lean 三模式 + 双进程 24 写并发）、`test-skill-surface`、
+  `scripts/audit-transport-contracts.mjs` + `scripts/scorecard-target.mjs`；
+  `mcp-scorecard.yml` 固定审计源 commit、`persist-credentials: false`。
+- **文档** — `docs/fts-bootstrap.md`、`docs/input-limits.md`、`docs/transport-validation.md`；
+  `examples/fts5-search.md` 补 namespace/ranking 说明。
+- **依赖** — `overrides` 跟进上游安全版本 `hono` 4.13.11、`@hono/node-server` 2.1.3。
+
+### Kept (fork divergences, not reverted)
+
+- `bun:sqlite` / `better-sqlite3` 双后端、`prepareCached` 语句缓存、原生 `node:http`
+  （上游 0.4.2 反而回到 Express + cors）、`index.ts` 的 CLI/transport 懒加载、PM2 脚本。
+
 ## 0.4.0 - 2026-08-12
 
 SOTA-oriented agent memory release (still local-first, still no embeddings/cloud). Upstream integration into the bun fork — transport architecture unchanged (lite default preserved).

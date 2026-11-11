@@ -71,6 +71,18 @@ bun dist/index.js doctor       # 健康检查 + 下一步
 
 Node 运行方式相同：`node dist/index.js ...`（需 `npm ci` 安装 better-sqlite3）。
 
+### Skill / CLI（无 MCP 客户端）
+
+同一套工具、同样的 mutation gate（`explicit_user_intent: true`），不需要 MCP 客户端：
+
+```bash
+bun dist/index.js call memory_connection_status --json '{}'
+bun dist/index.js call memory_search --json '{"query":"deploy"}'
+```
+
+包内 skill 层：`skill/SKILL.md`（安装后随包分发）。Hermes 等 Agent Plugins 客户端可用
+`agent-plugin/`（内置 `plugin.json` / `mcp.json` / `skills/delx-memory/SKILL.md`）。
+
 ### PM2 部署（bun）
 
 ```bash
@@ -80,7 +92,7 @@ pmx=false pm2 start scripts/pm2-bun-spawner.cjs --name delx-memory-bun \
 
 - `pmx=false` 关闭 PM2 容器的 `@pm2/io` 注入（省 ~16 MB RSS）。
 - spawner（容器 CJS，~19 MB）委托子进程 `bun dist/index.js --http`（boot ~24 MB）。
-- 健康检查：`curl http://127.0.0.1:3030/health` → `{"ok":true,"name":"delx-memory","version":"0.4.1"}`
+- 健康检查：`curl http://127.0.0.1:3030/health` → `{"ok":true,"name":"delx-memory","version":"0.4.2"}`
 
 ---
 
@@ -292,7 +304,7 @@ See [`AGENTS.md`](./AGENTS.md) for repo conventions, [`SECURITY.md`](./SECURITY.
 
 ## Changelog
 
-本分支版本历史见 [`CHANGELOG.md`](./CHANGELOG.md)（0.4.1：namespace 隔离覆盖 export/tag-delete/list/handoff + 安全依赖升级；0.4.0：handoff/batch/namespaces/since + bun 适配；0.3.0：lite transport + tool catalog 架构）。
+本分支版本历史见 [`CHANGELOG.md`](./CHANGELOG.md)（0.4.2：搜索命名空间隔离提前到 LIMIT 前、FTS 引导原子化、SDK 入参元素上限、HTTP 压缩体 415、`call` CLI + 包内 skill + agent-plugin；0.4.1：namespace 隔离覆盖 export/tag-delete/list/handoff + 安全依赖升级；0.4.0：handoff/batch/namespaces/since + bun 适配；0.3.0：lite transport + tool catalog 架构）。
 
 ## License
 

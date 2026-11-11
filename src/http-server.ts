@@ -73,13 +73,23 @@ class HttpError extends Error {
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    // Compressed bodies are intentionally unsupported: send uncompressed JSON.
+    // (Express-based upstream returns the same 415 via `inflate: false`.)
+    const encoding = String(req.headers["content-encoding"] ?? "").trim().toLowerCase();
+    if (encoding && encoding !== "identity") {
+      req.resume(); // drain so the client sees the response, not a reset
+      reject(new HttpError(415, "Unsupported Content-Encoding: send uncompressed JSON"));
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
+        // Answer immediately but keep the socket alive: destroying the request
+        // makes clients observe a reset instead of the 413.
+        req.resume();
         reject(new HttpError(413, "Payload too large"));
-        req.destroy();
         return;
       }
       chunks.push(chunk);

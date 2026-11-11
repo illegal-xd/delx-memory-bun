@@ -6,6 +6,11 @@ export async function runCliCommand(args: string[]): Promise<number | undefined>
   if (!command || command === "--http") return undefined;
   if (command === "setup") return runSetup(rest);
   if (command === "doctor" || command === "status") return runDoctor(rest);
+  if (command === "call") {
+    // Lazy: `call` pulls the tool catalog (zod + handlers); doctor/setup must not.
+    const { runToolCall } = await import("./tool-calls.js");
+    return runToolCall(rest);
+  }
   if (command === "version" || command === "--version" || command === "-v") {
     console.log(SERVER_VERSION);
     return 0;
